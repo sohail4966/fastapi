@@ -1,12 +1,12 @@
 
-from database.init_db import DatabaseInitializer
+from ..database.init_db import DatabaseInitializer
 import asyncio
 import json
 import logging
 from datetime import datetime
 import websockets
-from main import settings
 from app.models import OHLCVData
+from ..core.config import settings
 
 class WebSocketManager:
     def __init__(self, clickhouse_manager: DatabaseInitializer, redis_client):

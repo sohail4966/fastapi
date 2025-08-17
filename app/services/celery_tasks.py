@@ -1,7 +1,7 @@
 import redis
 from celery import Celery
-from main import settings
-from database.init_db import DatabaseInitializer
+from ..core.config import settings
+from ..database.init_db import DatabaseInitializer
 from .indicators_service import TechnicalIndicatorsEngine
 import asyncio
 

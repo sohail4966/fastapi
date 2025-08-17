@@ -48,7 +48,7 @@ nano .env
 
 ```bash
 # Make scripts executable
-chmod +x scripts/*.sh
+chmod +x deploy.sh
 
 # Run full deployment
 ./scripts/deploy.sh

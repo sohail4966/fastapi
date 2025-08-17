@@ -3,7 +3,7 @@ import pandas_ta as ta
 import logging
 from datetime import datetime
 from typing import List
-from app.database.init_db import DatabaseInitializer
+from ..database.init_db import DatabaseInitializer
 from app.models import TechnicalIndicator
 
 

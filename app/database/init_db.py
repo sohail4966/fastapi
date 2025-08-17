@@ -3,11 +3,11 @@ import logging
 from typing import List, Dict, Any
 import clickhouse_connect
 from datetime import datetime, timedelta
-
+import os
 logger = logging.getLogger(__name__)
 
 class DatabaseInitializer:
-    def __init__(self, host: str, port: int, user: str, password: str, database: str):
+    def __init__(self, host: str, port: int, user: str,password:str, database: str):
         self.host = host
         self.port = port
         self.user = user
@@ -18,11 +18,13 @@ class DatabaseInitializer:
     def connect(self):
         """Initialize ClickHouse connection"""
         self.client = clickhouse_connect.get_client(
-            host=self.host,
-            port=self.port,
-            username=self.user,
-            password=self.password
-        )
+                host=os.getenv("CLICKHOUSE_HOST", "localhost"),
+                port=int(os.getenv("CLICKHOUSE_PORT", "8123")),
+                username=os.getenv("CLICKHOUSE_USER"),
+                password=os.getenv("CLICKHOUSE_PASSWORD",'crypto_password'),
+                database=os.getenv("CLICKHOUSE_DATABASE")
+            )
+        logger.info(f'client {self.client}')
     
     def create_database(self):
         """Create the main database"""
@@ -60,9 +62,9 @@ class DatabaseInitializer:
         ) ENGINE = MergeTree()
         PARTITION BY toYYYYMM(timestamp)
         ORDER BY (symbol, timeframe, timestamp)
-        SETTINGS index_granularity = 8192,
-                 ttl_only_drop_parts = 1
-        TTL timestamp + INTERVAL 5 YEAR
+        SETTINGS index_granularity = 8192;
+                
+        
         """
         
         # Technical indicators table
@@ -79,7 +81,7 @@ class DatabaseInitializer:
         PARTITION BY toYYYYMM(timestamp)
         ORDER BY (symbol, timeframe, indicator_name, timestamp)
         SETTINGS index_granularity = 8192
-        TTL timestamp + INTERVAL 2 YEAR
+        --TTL timestamp + INTERVAL 2 YEAR
         """
         
         # Crypto metadata table
@@ -116,7 +118,7 @@ class DatabaseInitializer:
         PARTITION BY toYYYYMMDD(timestamp)
         ORDER BY (symbol, timestamp, side, level)
         SETTINGS index_granularity = 8192
-        TTL timestamp + INTERVAL 7 DAY
+        --TTL timestamp + INTERVAL 7 DAY
         """
         
         # Trade data table
@@ -134,7 +136,7 @@ class DatabaseInitializer:
         PARTITION BY toYYYYMMDD(timestamp)
         ORDER BY (symbol, timestamp, trade_id)
         SETTINGS index_granularity = 8192
-        TTL timestamp + INTERVAL 30 DAY
+        --TTL timestamp + INTERVAL 30 DAY
         """
         
         tables = [
@@ -154,78 +156,59 @@ class DatabaseInitializer:
         
         # Hourly OHLCV aggregation
         hourly_view_sql = """
-        CREATE MATERIALIZED VIEW IF NOT EXISTS ohlcv_hourly_mv
-        ENGINE = AggregatingMergeTree()
-        PARTITION BY toYYYYMM(hour_timestamp)
-        ORDER BY (symbol, hour_timestamp)
-        POPULATE
-        AS SELECT
-            symbol,
-            toStartOfHour(timestamp) as hour_timestamp,
-            argMinState(open_price, timestamp) as open_price,
-            maxState(high_price) as high_price,
-            minState(low_price) as low_price,
-            argMaxState(close_price, timestamp) as close_price,
-            sumState(volume) as volume,
-            sumState(quote_volume) as quote_volume,
-            sumState(trade_count) as trade_count
-        FROM crypto_ohlcv
-        WHERE timeframe = '1m'
-        GROUP BY symbol, toStartOfHour(timestamp)
+        CREATE MATERIALIZED VIEW crypto_data.hourly_ohlcv_mv
+ENGINE = AggregatingMergeTree()
+PARTITION BY toYYYYMMDD(toStartOfHour(timestamp))
+ORDER BY (symbol, toStartOfHour(timestamp)) AS
+SELECT
+    symbol,
+    toStartOfHour(timestamp) AS hour_ts,
+    sumState(volume) AS total_volume,
+    avgState(volume) AS avg_volume,
+    maxState(volume) AS max_volume,
+    minState(volume) AS min_volume,
+    countState() AS candle_count
+FROM crypto_data.crypto_ohlcv
+WHERE timeframe = '1m'
+GROUP BY symbol, toStartOfHour(timestamp);
+
+
         """
         
         # Daily OHLCV aggregation
         daily_view_sql = """
         CREATE MATERIALIZED VIEW IF NOT EXISTS ohlcv_daily_mv
-        ENGINE = AggregatingMergeTree()
-        PARTITION BY toYYYYMM(day_timestamp)
-        ORDER BY (symbol, day_timestamp)
-        POPULATE
-        AS SELECT
-            symbol,
-            toStartOfDay(timestamp) as day_timestamp,
-            argMinState(open_price, timestamp) as open_price,
-            maxState(high_price) as high_price,
-            minState(low_price) as low_price,
-            argMaxState(close_price, timestamp) as close_price,
-            sumState(volume) as volume,
-            sumState(quote_volume) as quote_volume,
-            sumState(trade_count) as trade_count
-        FROM crypto_ohlcv
-        WHERE timeframe = '1m'
-        GROUP BY symbol, toStartOfDay(timestamp)
+ENGINE = AggregatingMergeTree()
+PARTITION BY toYYYYMM(toStartOfDay(timestamp))
+ORDER BY (symbol, toStartOfDay(timestamp))
+AS SELECT
+    symbol,
+    toStartOfDay(timestamp) as day_timestamp,
+    argMinState(open_price, timestamp) as open_price,
+    maxState(high_price) as high_price,
+    minState(low_price) as low_price,
+    argMaxState(close_price, timestamp) as close_price,
+    sumState(volume) as volume,
+    sumState(quote_volume) as quote_volume,
+    sumState(trade_count) as trade_count
+FROM crypto_ohlcv
+WHERE timeframe = '1m'
+GROUP BY symbol, toStartOfDay(timestamp);
         """
         
         # Latest prices view
         latest_prices_view_sql = """
         CREATE MATERIALIZED VIEW IF NOT EXISTS latest_prices_mv
-        ENGINE = ReplacingMergeTree(timestamp)
-        ORDER BY symbol
-        AS SELECT
-            symbol,
-            timestamp,
-            close_price as price,
-            volume,
-            price_change_24h,
-            price_change_percentage_24h
-        FROM (
-            SELECT 
-                symbol,
-                timestamp,
-                close_price,
-                volume,
-                close_price - lagInFrame(close_price, 1) 
-                    OVER (PARTITION BY symbol ORDER BY timestamp 
-                          ROWS BETWEEN 1440 PRECEDING AND 1440 PRECEDING) as price_change_24h,
-                (close_price - lagInFrame(close_price, 1) 
-                    OVER (PARTITION BY symbol ORDER BY timestamp 
-                          ROWS BETWEEN 1440 PRECEDING AND 1440 PRECEDING)) / 
-                lagInFrame(close_price, 1) 
-                    OVER (PARTITION BY symbol ORDER BY timestamp 
-                          ROWS BETWEEN 1440 PRECEDING AND 1440 PRECEDING) * 100 as price_change_percentage_24h
-            FROM crypto_ohlcv
-            WHERE timeframe = '1m'
-        )
+ENGINE = AggregatingMergeTree()
+ORDER BY symbol
+AS SELECT
+    symbol,
+    argMaxState(close_price, timestamp) as latest_price,
+    argMaxState(volume, timestamp) as latest_volume,
+    argMaxState(timestamp, timestamp) as last_seen
+FROM crypto_ohlcv
+WHERE timeframe = '1m'
+GROUP BY symbol;
         """
         
         # Volume analysis view
@@ -287,7 +270,7 @@ class DatabaseInitializer:
             self.connect()
             self.create_database()
             self.create_tables()
-            self.create_materialized_views()
+            # self.create_materialized_views()
             self.create_indexes()
             
             logger.info("Database initialization completed successfully!")

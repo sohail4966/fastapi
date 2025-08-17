@@ -25,29 +25,16 @@ from app.database.init_db import DatabaseInitializer
 from app.utils.websocket_manager import WebSocketManager
 from app.services.indicators_service import TechnicalIndicatorsEngine
 from app.services.celery_tasks import calculate_indicators_task
+from app.core.config import settings
+
 load_dotenv() 
 
-class Settings:
-    CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "localhost")
-    CLICKHOUSE_PORT = int(os.getenv("CLICKHOUSE_PORT", 8123))
-    CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
-    CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "")
-    CLICKHOUSE_DATABASE = os.getenv("CLICKHOUSE_DATABASE", "crypto_data")
-    
-    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-    CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
-    CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
-    
-    BINANCE_WS_URL = os.getenv("BINANCE_WS_URL", "wss://stream.binance.com:9443/ws/stream")
-    COINGECKO_API_URL = os.getenv("COINGECKO_API_URL", "https://api.coingecko.com/api/v3")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
-
-settings = Settings()
-
-
-# ============================================================================
-# FASTAPI APPLICATION
-# ============================================================================
 
 # Global instances
 db_manager = None
@@ -55,29 +42,100 @@ redis_client = None
 ws_manager = None
 indicators_engine = None
 
+
+# Celery configuration
+def create_celery_app() -> Celery:
+    celery_app = Celery(
+        "crypto_app",
+        broker=os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0"),
+        backend=os.getenv("CELERY_RESULT_BACKEND", "redis://redis:6379/0"),
+        # Include your task modules
+        include=[
+            "app.services.celery_tasks",
+        ]
+    )
+    
+    # Celery configuration
+    celery_app.conf.update(
+        task_serializer="json",
+        accept_content=["json"],
+        result_serializer="json",
+        timezone="UTC",
+        enable_utc=True,
+        task_routes={
+            "app.services.celery_tasks.*": {"queue": "crypto_queue"},
+        },
+        # Add beat schedule if you have periodic tasks
+        beat_schedule={
+            # Example: 'fetch-crypto-data': {
+            #     'task': 'app.services.celery_tasks.fetch_crypto_data',
+            #     'schedule': 60.0,  # Run every 60 seconds
+            # },
+        },
+    )
+    
+    return celery_app
+
+# Create Celery instance
+celery_app = create_celery_app()
+
+# Global variables for dependency injection
+db_manager = None
+redis_client = None
+ws_manager = None
+indicators_engine = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     global db_manager, redis_client, ws_manager, indicators_engine
     
-    # Initialize connections
-    db_manager = DatabaseInitializer()
-    redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
-    ws_manager = WebSocketManager(db_manager, redis_client)
-    indicators_engine = TechnicalIndicatorsEngine(db_manager)
-    
-    # Initialize database schema
-    await db_manager.initialize_schema()
-    
-    # Start WebSocket connections
-    asyncio.create_task(ws_manager.connect_to_binance())
-    
-    yield
-    
-    # Shutdown
-    if redis_client:
-        await redis_client.close()
+    try:
+        # Initialize components
+        db_manager = DatabaseInitializer(
+            settings.CLICKHOUSE_HOST,
+            settings.CLICKHOUSE_PORT,
+            settings.CLICKHOUSE_USER,
+            settings.CLICKHOUSE_PASSWORD,
+            settings.CLICKHOUSE_DATABASE
+            
+        )
+        
+        redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+        ws_manager = WebSocketManager(db_manager, redis_client)
+        indicators_engine = TechnicalIndicatorsEngine(db_manager)
+        
+        # Initialize database schema
+        db_manager.run_initialization()
+        
+        # Start WebSocket connections
+        asyncio.create_task(ws_manager.connect_to_binance())
+        
+        print("✅ Application startup completed successfully")
+        
+        yield
+        
+    except Exception as e:
+        print(f"❌ Error during startup: {e}")
+        raise
+    finally:
+        # Shutdown cleanup
+        print("🔄 Shutting down application...")
+        
+        if redis_client:
+            try:
+                await redis_client.close()
+                print("✅ Redis connection closed")
+            except Exception as e:
+                print(f"⚠️ Error closing Redis: {e}")
+        
+        if ws_manager:
+            try:
+                # Add any WebSocket cleanup here
+                print("✅ WebSocket manager cleaned up")
+            except Exception as e:
+                print(f"⚠️ Error cleaning up WebSocket manager: {e}")
 
+# Create FastAPI app
 app = FastAPI(
     title="Cryptocurrency Data System",
     description="High-performance crypto data system with FastAPI and ClickHouse",
@@ -85,17 +143,31 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Configure this properly for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ============================================================================
-# API ENDPOINTS
-# ============================================================================
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for container health checks"""
+    try:
+        # Check if critical components are available
+        status = {
+            "status": "healthy",
+            "database": "connected" if db_manager else "disconnected",
+            "redis": "connected" if redis_client else "disconnected",
+            "websocket": "active" if ws_manager else "inactive"
+        }
+        return status
+    except Exception as e:
+        return {"status": "unhealthy", "error": str(e)}
+
 
 @app.get("/")
 async def root():

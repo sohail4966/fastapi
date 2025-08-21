@@ -16,21 +16,32 @@ class DatabaseInitializer:
         self.client = None
     
     def connect(self):
-        """Initialize ClickHouse connection"""
+        """Initialize ClickHouse connection to the specific database."""
+        # This method now assumes the database already exists.
+        if self.client:
+            self.client.close()
+            
         self.client = clickhouse_connect.get_client(
-                host=os.getenv("CLICKHOUSE_HOST", "localhost"),
-                port=int(os.getenv("CLICKHOUSE_PORT", "8123")),
-                username=os.getenv("CLICKHOUSE_USER"),
-                password=os.getenv("CLICKHOUSE_PASSWORD",'crypto_password'),
-                database=os.getenv("CLICKHOUSE_DATABASE")
-            )
-        logger.info(f'client {self.client}')
+            host=self.host,
+            port=self.port,
+            username=self.user,
+            password=self.password,
+            database=self.database
+        )
+        logger.info(f"Successfully connected to database '{self.database}'")
     
     def create_database(self):
         """Create the main database"""
-        create_db_sql = f"CREATE DATABASE IF NOT EXISTS {self.database}"
-        self.client.command(create_db_sql)
-        logger.info(f"Database {self.database} created or already exists")
+
+        with clickhouse_connect.get_client(
+            host=self.host,
+            port=self.port,
+            username=self.user,
+            password=self.password
+        ) as client:
+            logger.info(f"Ensuring database '{self.database}' exists...")
+            client.command(f"CREATE DATABASE IF NOT EXISTS {self.database}")
+            logger.info(f"Database '{self.database}' created or already exists.")
         
         # Switch to the created database
         self.client = clickhouse_connect.get_client(
@@ -265,10 +276,12 @@ GROUP BY symbol;
     def run_initialization(self):
         """Run complete database initialization"""
         logger.info("Starting database initialization...")
+        logger.info(f"user : {self.user} ,password : {self.password}")
         
         try:
-            self.connect()
             self.create_database()
+            self.connect()
+            
             self.create_tables()
             # self.create_materialized_views()
             self.create_indexes()

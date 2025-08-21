@@ -1,25 +1,16 @@
-# docker-compose.yml
-# Complete Docker Compose setup for Cryptocurrency Data System
-
 services:
   # ClickHouse Database
   clickhouse:
     image: clickhouse/clickhouse-server:latest
     container_name: crypto_clickhouse
     ports:
-      - "8123:8123"  # HTTP interface
-      - "9000:9000"  # Native interface
+      - "8123:8123"
+      - "9000:9000"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-      # Remove these lines if config files don't exist
-
-      - ./fastapi/clickhouse/config.xml:/etc/clickhouse-server/config.d/custom.xml
-      - ./fastapi/clickhouse/users.xml:/etc/clickhouse-server/users.d/custom.xml
-
+      - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/config.xml
+      - ./clickhouse/users.xml:/etc/clickhouse-server/users.d/z-crypto-users.xml
     environment:
-      CLICKHOUSE_DB: crypto_data
-      CLICKHOUSE_USER: crypto_user
-      CLICKHOUSE_PASSWORD: crypto_password
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
     ulimits:
       nofile:
@@ -31,7 +22,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-
+  
   # Redis for caching and message broker
   redis:
     image: redis:7-alpine

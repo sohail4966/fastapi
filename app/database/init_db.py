@@ -14,6 +14,7 @@ class DatabaseInitializer:
         self.password = password
         self.database = database
         self.client = None
+        logger.info(f'host:{self.host} \n port:{self.port} \n user:{self.user} \n password:{password} \n database:{self.database}')
     
     def connect(self):
         """Initialize ClickHouse connection to the specific database."""
@@ -65,11 +66,8 @@ class DatabaseInitializer:
             high_price Float64,
             low_price Float64,
             close_price Float64,
-            volume Float64,
-            quote_volume Float64 DEFAULT 0,
-            trade_count UInt64 DEFAULT 0,
-            taker_buy_base_volume Float64 DEFAULT 0,
-            taker_buy_quote_volume Float64 DEFAULT 0
+            volume Float64
+
         ) ENGINE = MergeTree()
         PARTITION BY toYYYYMM(timestamp)
         ORDER BY (symbol, timeframe, timestamp)
@@ -81,18 +79,17 @@ class DatabaseInitializer:
         # Technical indicators table
         indicators_table_sql = """
         CREATE TABLE IF NOT EXISTS technical_indicators (
-            symbol LowCardinality(String),
-            timestamp DateTime64(3, 'UTC'),
-            timeframe LowCardinality(String),
-            indicator_name LowCardinality(String),
-            indicator_value Float64,
-            parameters Map(String, String),
-            calculation_timestamp DateTime64(3, 'UTC') DEFAULT now64()
-        ) ENGINE = MergeTree()
-        PARTITION BY toYYYYMM(timestamp)
-        ORDER BY (symbol, timeframe, indicator_name, timestamp)
-        SETTINGS index_granularity = 8192
-        --TTL timestamp + INTERVAL 2 YEAR
+            id UUID DEFAULT generateUUIDv4(),               -- unique ID
+            indicator_name LowCardinality(String),          -- "RSI", "MACD", "EMA"
+            category LowCardinality(String),                -- "Momentum", "Trend", "Volatility"
+            description String,                             -- human-readable explanation
+            formula String,                                 -- expression or DSL string
+            dependencies JSON,                              -- JSON describing required inputs (fields/other indicators)
+            parameters JSON,                                -- default parameters (e.g. {"period": 14})
+            created_at DateTime64(3, 'UTC') DEFAULT now64(),
+            updated_at DateTime64(3, 'UTC') DEFAULT now64()
+        ) ENGINE = ReplacingMergeTree(updated_at)
+        ORDER BY id;
         """
         
         # Crypto metadata table
@@ -149,13 +146,32 @@ class DatabaseInitializer:
         SETTINGS index_granularity = 8192
         --TTL timestamp + INTERVAL 30 DAY
         """
+        trading_pairs = """
+        CREATE TABLE IF NOT EXISTS trading_pairs
+        (
+            id UUID DEFAULT generateUUIDv4(),
+            base_symbol String,       -- e.g. "NEO"
+            base_name String,         -- e.g. "Neo"
+            quote_symbol String,      -- e.g. "BTC"
+            quote_name String,        -- e.g. "Bitcoin"
+            exchange String,          -- e.g. "Binance"
+            symbol_display String,    -- e.g. "NEO/BTC"
+            symbol_api String,        -- e.g. "NEOBTC"
+            active UInt8,             -- 1 = active, 0 = inactive
+            created_at DateTime DEFAULT now()
+        )
+        ENGINE = MergeTree
+        ORDER BY (exchange, base_symbol, quote_symbol);
+
+        """
         
         tables = [
             ohlcv_table_sql,
             indicators_table_sql, 
             metadata_table_sql,
             orderbook_table_sql,
-            trades_table_sql
+            trades_table_sql,
+            trading_pairs
         ]
         
         for table_sql in tables:
@@ -165,7 +181,7 @@ class DatabaseInitializer:
     def create_materialized_views(self):
         """Create materialized views for performance optimization"""
         
-        # Hourly OHLCV aggregation
+
         hourly_view_sql = """
         CREATE MATERIALIZED VIEW crypto_data.hourly_ohlcv_mv
 ENGINE = AggregatingMergeTree()

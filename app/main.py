@@ -1,30 +1,17 @@
 import asyncio
 import logging
-from typing import Optional,List
-from fastapi import FastAPI, WebSocket, BackgroundTasks, HTTPException
+from fastapi import FastAPI, WebSocket, BackgroundTasks, HTTPException,APIRouter
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-import clickhouse_connect
 import redis
-from celery import Celery
-import websockets
-import aiohttp
-import pandas_ta as ta
 import uvicorn
 from contextlib import asynccontextmanager
-from dotenv import load_dotenv
-import os
 from app.database.init_db import DatabaseInitializer
 from app.utils.websocket_manager import WebSocketManager
 from app.services.indicators_service import TechnicalIndicatorsEngine
-from app.services.celery_tasks import calculate_indicators_task
 from app.core.config import settings
 from app.celery import celery_init
+from app.admin.api import router as admin_router
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
 logger = logging.getLogger(__name__)
 
 # Create Celery instance
@@ -49,7 +36,8 @@ async def lifespan(app: FastAPI):
             database = settings.CLICKHOUSE_DATABASE
             
         )
-        logger.info(f'user: {db_manager.user} ,password :{db_manager.password}')
+        app.state.db_manager = db_manager
+        logger.info(f'user: {db_manager.user} ,password :{db_manager.password}, database : {db_manager.database}')
         redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
         ws_manager = WebSocketManager(db_manager, redis_client)
         indicators_engine = TechnicalIndicatorsEngine(db_manager)
@@ -102,7 +90,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Health check endpoint
+app.include_router(admin_router, prefix="/api/v1")
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint for container health checks"""
@@ -118,97 +107,6 @@ async def health_check():
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
 
-@app.get("/api/v1/indicators/{symbol}")
-async def get_technical_indicators(symbol: str, indicator_name: Optional[str] = None):
-    """Get technical indicators for a symbol"""
-    
-    query = """
-    SELECT timestamp, indicator_name, indicator_value, parameters
-    FROM technical_indicators
-    WHERE symbol = %(symbol)s
-    """
-    
-    params = {"symbol": symbol.upper()}
-    
-    if indicator_name:
-        query += " AND indicator_name = %(indicator_name)s"
-        params["indicator_name"] = indicator_name
-    
-    query += " ORDER BY timestamp DESC LIMIT 100"
-    
-    try:
-        result = db_manager.client.query(query, params)
-        
-        indicators = [
-            {
-                "timestamp": row[0],
-                "indicator_name": row[1],
-                "value": row[2],
-                "parameters": row[3]
-            }
-            for row in result.result_rows
-        ]
-        
-        return {"symbol": symbol, "indicators": indicators}
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/v1/calculate-indicators/{symbol}")
-async def trigger_indicator_calculation(symbol: str, background_tasks: BackgroundTasks):
-    """Trigger technical indicator calculation for a symbol"""
-    
-    background_tasks.add_task(calculate_indicators_task, symbol.upper())
-    
-    return {"message": f"Indicator calculation triggered for {symbol}"}
-
-# ============================================================================
-# WEBSOCKET ENDPOINTS
-# ============================================================================
-
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: List[WebSocket] = []
-    
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-    
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-    
-    async def send_personal_message(self, message: str, websocket: WebSocket):
-        await websocket.send_text(message)
-    
-    async def broadcast(self, message: str):
-        for connection in self.active_connections:
-            try:
-                await connection.send_text(message)
-            except:
-                # Remove dead connections
-                self.active_connections.remove(connection)
-
-connection_manager = ConnectionManager()
-
-@app.websocket("/ws/prices")
-async def websocket_prices(websocket: WebSocket):
-    """WebSocket endpoint for real-time price updates"""
-    await connection_manager.connect(websocket)
-    
-    try:
-        while True:
-            # Keep connection alive
-            await websocket.receive_text()
-    
-    except Exception as e:
-        logging.error(f"WebSocket error: {e}")
-    
-    finally:
-        connection_manager.disconnect(websocket)
-
-# ============================================================================
-# MAIN APPLICATION RUNNER
-# ============================================================================
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

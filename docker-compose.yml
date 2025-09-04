@@ -6,12 +6,12 @@ services:
     ports:
       - "8123:8123"
       - "9000:9000"
+    networks:
+      - app_net
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/config.xml
       - ./clickhouse/users.xml:/etc/clickhouse-server/users.d/z-crypto-users.xml
-    environment:
-      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
     ulimits:
       nofile:
         soft: 262144
@@ -47,15 +47,9 @@ services:
     container_name: crypto_api
     ports:
       - "8000:8000"
+    networks:
+      - app_net
     environment:
-      CLICKHOUSE_HOST: clickhouse  # Fixed: matches service name
-      CLICKHOUSE_PORT: 8123
-      CLICKHOUSE_USER: crypto_user
-      CLICKHOUSE_PASSWORD: crypto_password
-      CLICKHOUSE_DATABASE: crypto_data
-      REDIS_URL: redis://redis:6379
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
       PYTHONPATH: /app
     depends_on:
       clickhouse:
@@ -65,6 +59,8 @@ services:
     volumes:
       - .:/app
     restart: unless-stopped
+    env_file:
+      - .env
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   # Celery Worker
@@ -74,15 +70,11 @@ services:
       dockerfile: Dockerfile
     container_name: crypto_celery_worker
     environment:
-      CLICKHOUSE_HOST: clickhouse  # Fixed: matches service name
-      CLICKHOUSE_PORT: 8123
-      CLICKHOUSE_USER: crypto_user
-      CLICKHOUSE_PASSWORD: crypto_password
-      CLICKHOUSE_DATABASE: crypto_data
-      REDIS_URL: redis://redis:6379
+      PYTHONPATH: /app
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
-      PYTHONPATH: /app
+    networks:
+      - app_net
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -93,18 +85,13 @@ services:
     restart: unless-stopped
     command: celery -A app.main.celery_app worker --loglevel=info
 
-  # Celery Beat (Scheduler)
+# Celery Beat (Scheduler)
   celery_beat:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: crypto_celery_beat
     environment:
-      CLICKHOUSE_HOST: clickhouse  # Fixed: matches service name
-      CLICKHOUSE_PORT: 8123
-      CLICKHOUSE_USER: crypto_user
-      CLICKHOUSE_PASSWORD: crypto_password
-      CLICKHOUSE_DATABASE: crypto_data
       REDIS_URL: redis://redis:6379
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
@@ -114,6 +101,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - app_net
     volumes:
       - .:/app
     restart: unless-stopped
@@ -134,6 +123,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    networks:
+      - app_net
     volumes:
       - .:/app
     restart: unless-stopped
@@ -143,4 +134,5 @@ volumes:
   clickhouse_data:
   redis_data:
 
-# Removed external network - will use default Docker Compose network
+networks:
+  app_net:

@@ -7,7 +7,6 @@ import uvicorn
 from contextlib import asynccontextmanager
 from app.database.init_db import DatabaseInitializer
 from app.utils.websocket_manager import WebSocketManager
-from app.services.indicators_service import TechnicalIndicatorsEngine
 from app.core.config import settings
 from app.celery import celery_init
 from app.admin.api import router as admin_router
@@ -25,7 +24,6 @@ indicators_engine = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global db_manager, redis_client, ws_manager, indicators_engine
-    logger.info(f'from settings {settings.CLICKHOUSE_USER} , {settings.CLICKHOUSE_PASSWORD}')
     try:
         # Initialize components
         db_manager = DatabaseInitializer(
@@ -37,10 +35,8 @@ async def lifespan(app: FastAPI):
             
         )
         app.state.db_manager = db_manager
-        logger.info(f'user: {db_manager.user} ,password :{db_manager.password}, database : {db_manager.database}')
         redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
         ws_manager = WebSocketManager(db_manager, redis_client)
-        indicators_engine = TechnicalIndicatorsEngine(db_manager)
         
         # Initialize database schema
         db_manager.run_initialization()

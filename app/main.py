@@ -62,12 +62,6 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 print(f"⚠️ Error closing Redis: {e}")
         
-        if ws_manager:
-            try:
-                # Add any WebSocket cleanup here
-                print("✅ WebSocket manager cleaned up")
-            except Exception as e:
-                print(f"⚠️ Error cleaning up WebSocket manager: {e}")
 
 # Create FastAPI app
 app = FastAPI(

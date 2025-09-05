@@ -1,0 +1,1 @@
+#  all api endpoints related to indicators

@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional
 import uuid
 
 from fastapi import HTTPException, logger
-from app.dependency import get_db_client
 from app.indicators.repo import IndicatorBase, IndicatorCreate, IndicatorUpdate
 
 
@@ -13,7 +12,7 @@ class IndicatorService:
     TABLE = 'technical_indicators'
 
     def __init__(self, client=None):
-        self.client = client or get_db_client()
+        self.client = client 
 
 
     def _row_from_model(self, model: IndicatorBase, id: Optional[str] = None):
@@ -43,7 +42,7 @@ class IndicatorService:
         """
         # ensure unique indicator_name
         q = f"SELECT id FROM {self.TABLE} WHERE indicator_name = %(name)s LIMIT 1"
-        rows = self.client.query(q, params={'name': payload.indicator_name}).result_rows
+        rows = self.client.query(q, parameters={'name': payload.indicator_name}).result_rows
         if rows:
             raise HTTPException(status_code=409, detail="indicator_name already exists")
 
@@ -127,17 +126,17 @@ class IndicatorService:
         @return a list of dictionaries containing indicator information
         """
         sel = f"SELECT id, indicator_name, category, description, formula, dependencies, parameters, created_at, updated_at FROM {self.TABLE} ORDER BY indicator_name LIMIT %(limit)s OFFSET %(offset)s"
-        res = self.client.query(sel, params={'limit': limit, 'offset': offset})
+        res = self.client.query(sel, parameters={'limit': limit, 'offset': offset})
         out = []
         for r in res.result_rows:
             out.append({
-            'id': r[0],
+            'id': f'{r[0]}',
             'indicator_name': r[1],
             'category': r[2],
             'description': r[3],
             'formula': r[4],
-            'dependencies': json.loads(r[5]) if r[5] else {},
-            'parameters': json.loads(r[6]) if r[6] else {},
+            'dependencies': r[5],
+            'parameters': r[6],
             'created_at': str(r[7]) if r[7] else None,
             'updated_at': str(r[8]) if r[8] else None,
             })

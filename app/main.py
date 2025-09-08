@@ -10,7 +10,7 @@ from app.utils.websocket_manager import WebSocketManager
 from app.core.config import settings
 from app.celery import celery_init
 from app.admin.api import admin_router
-from indicators.api import indicator_router 
+from app.indicators.api import indicator_router 
 logger = logging.getLogger(__name__)
 
 # Create Celery instance

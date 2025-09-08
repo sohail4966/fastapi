@@ -6,17 +6,18 @@
 
 from typing import Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException, logger
-
+from fastapi import APIRouter, Depends, HTTPException
+from clickhouse_connect.driver.client import Client
+from app.dependency import get_db_client
 from app.indicators.repo import IndicatorCreate, IndicatorOut, IndicatorUpdate
 from app.indicators.service import IndicatorService
-
+import logging
 
 indicator_router = APIRouter(prefix="/indicators", tags=["indicators"])
+logger = logging.getLogger(__name__)
 
-
-def get_service():
-    return IndicatorService()
+def get_service(client: Client = Depends(get_db_client)):
+    return IndicatorService(client)
 
 
 @indicator_router.post("/", response_model=Dict[str, str])
@@ -34,7 +35,7 @@ async def create_indicator(payload: IndicatorCreate, svc: IndicatorService = Dep
     except HTTPException:
             raise
     except Exception as ex:
-            logger.exception("create_indicator error")
+            logger.info("create_indicator error")
             raise HTTPException(status_code=500, detail=str(ex))
 
 @indicator_router.get("/", response_model=List[IndicatorOut])

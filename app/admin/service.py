@@ -11,8 +11,9 @@ class AdminService():
 
     async def add_new_symbols(self,client: Client):
         """
-        Asynchronously fetches symbols from Binance, compares against existing ones in the DB,
-        and inserts only the new trading pairs.
+        Asynchronously fetch symbols from Binance using a provided client, compare them against existing symbols in the database, and insert only the new trading pairs.
+        @param client - The client used to interact with Binance.
+        @return A message indicating the success or failure of the operation.
         """
         # 1. Fetch all existing symbol_api values from the database first.
         # This prevents re-inserting duplicates and makes the operation idempotent.
@@ -76,6 +77,14 @@ class AdminService():
 
 
     async def add_data_for_symbol(self, client : Client, symbols : list[str], start_date: date, end_date : date):
+        """
+        Add data for a given symbol within a specified date range.
+        @param client - The client object for the database connection.
+        @param symbols - List of symbols for which data needs to be added.
+        @param start_date - The start date for the data retrieval.
+        @param end_date - The end date for the data retrieval.
+        @return A dictionary containing the status of the operation and the symbols processed.
+        """
         if not symbols:
                 raise HTTPException(status_code=400 ,detail='please provide atleast one symbol')
         failed = {'symbol' : []}
@@ -90,6 +99,13 @@ class AdminService():
 
 
     async def validate_symbol(self, client:Client, symbol:str):
+        """
+        Validate if a symbol is available in the trading_pairs table.
+        @param self - the class instance
+        @param client - the client used to query the database
+        @param symbol - the symbol to validate
+        @return True if the symbol is available, False otherwise
+        """
         """check if all pairs are avialable in traing_pairs table"""
         symbol_str = f"'{symbol}'"
         query = f"SELECT COUNT(*) FROM trading_pairs WHERE symbol_display IN {symbol_str};"
@@ -180,6 +196,12 @@ class AdminService():
             await binance.close()
 
     async def get_close_for_symbol(self , symbol:str,client:Client):
+        """
+        Retrieve close prices for a specific symbol from a database table containing cryptocurrency OHLCV data.
+        @param symbol - The symbol for which close prices are to be retrieved.
+        @param client - The client object for database connection.
+        @return A dictionary containing close prices for the specified symbol.
+        """
         query = f"select close_price from crypto_ohlcv where symbol='{symbol}' order by timestamp"
         if await self.validate_symbol(client=client , symbol=symbol):
             query_result = client.query(query)

@@ -9,8 +9,8 @@ from app.database.init_db import DatabaseInitializer
 from app.utils.websocket_manager import WebSocketManager
 from app.core.config import settings
 from app.celery import celery_init
-from app.admin.api import router as admin_router
-
+from app.admin.api import admin_router
+from indicators.api import indicator_router 
 logger = logging.getLogger(__name__)
 
 # Create Celery instance
@@ -80,7 +80,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+#add all urls here
 app.include_router(admin_router, prefix="/api/v1")
+app.include_router(indicator_router, prefix="/api/v1")
 
 @app.get("/health")
 async def health_check():

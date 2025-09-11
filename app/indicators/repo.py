@@ -1,6 +1,7 @@
 #  all repos classes related to indicators
 
 from typing import Any, Dict, Optional
+import uuid
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -61,10 +62,10 @@ class IndicatorUpdate(BaseModel):
 class IndicatorOut(IndicatorBase):
     """
     Define a class `IndicatorOut` that inherits from `IndicatorBase` and includes the following attributes:
-    - id: str
+    - id: uuid.UUID
     - created_at: Optional[str]
     - updated_at: Optional[str]
     """
-    id: str
+    id: uuid.UUID
     created_at: Optional[str]
     updated_at: Optional[str]

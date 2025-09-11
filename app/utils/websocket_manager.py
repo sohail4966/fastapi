@@ -22,7 +22,7 @@ class WebSocketManager:
         
         subscribe_message = {
             "method": "SUBSCRIBE",
-            "params": streams,
+            "parameters": streams,
             "id": 1
         }
         

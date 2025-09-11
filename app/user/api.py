@@ -18,21 +18,21 @@ async def get_ohlcv_data(
     WHERE symbol = %(symbol)s AND timeframe = %(timeframe)s
     """
     
-    params = {"symbol": symbol.upper(), "timeframe": timeframe}
+    parameters = {"symbol": symbol.upper(), "timeframe": timeframe}
     
     if start_date:
         query += " AND timestamp >= %(start_date)s"
-        params["start_date"] = start_date
+        parameters["start_date"] = start_date
     
     if end_date:
         query += " AND timestamp <= %(end_date)s"
-        params["end_date"] = end_date
+        parameters["end_date"] = end_date
     
     query += " ORDER BY timestamp DESC LIMIT %(limit)s"
-    params["limit"] = limit
+    parameters["limit"] = limit
     
     try:
-        result = db_manager.client.query(query, params)
+        result = db_manager.client.query(query, parameters)
         
         data = [
             {

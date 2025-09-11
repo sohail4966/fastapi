@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
         db_manager.run_initialization()
         
         # Start WebSocket connections
-        asyncio.create_task(ws_manager.connect_to_binance())
+        # asyncio.create_task(ws_manager.connect_to_binance())
         
         print("✅ Application startup completed successfully")
         

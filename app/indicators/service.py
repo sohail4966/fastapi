@@ -101,7 +101,12 @@ class IndicatorService:
             WHERE id = %(id)s OR indicator_name = %(name)s
             LIMIT 1
         """
-        res = self.client.query(sel, params={'id': id_or_name, 'name': id_or_name})
+        id,name = None , None
+        if type(id_or_name) == uuid:
+            id = id_or_name
+        else:
+            name = id_or_name.upper()
+        res = self.client.query(sel, parameters={'id': id, 'name': name})
         if not res.result_rows:
             return None
         r = res.result_rows[0]
@@ -111,8 +116,8 @@ class IndicatorService:
             'category': r[2],
             'description': r[3],
             'formula': r[4],
-            'dependencies': json.loads(r[5]) if r[5] else {},
-            'parameters': json.loads(r[6]) if r[6] else {},
+            'dependencies': r[5],
+            'parameters': r[6],
             'created_at': str(r[7]) if r[7] else None,
             'updated_at': str(r[8]) if r[8] else None,
         }

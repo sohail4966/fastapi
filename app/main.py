@@ -6,6 +6,7 @@ import redis
 import uvicorn
 from contextlib import asynccontextmanager
 from app.database.init_db import DatabaseInitializer
+from app.function_registry import load_function_registry
 from app.utils.websocket_manager import WebSocketManager
 from app.core.config import settings
 from app.celery import celery_init
@@ -37,12 +38,9 @@ async def lifespan(app: FastAPI):
         app.state.db_manager = db_manager
         redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
         ws_manager = WebSocketManager(db_manager, redis_client)
-        
-        # Initialize database schema
         db_manager.run_initialization()
+        app.state.func_registry = load_function_registry(db_manager.client)
         
-        # Start WebSocket connections
-        # asyncio.create_task(ws_manager.connect_to_binance())
         
         print("✅ Application startup completed successfully")
         
@@ -63,7 +61,6 @@ async def lifespan(app: FastAPI):
                 print(f"⚠️ Error closing Redis: {e}")
         
 
-# Create FastAPI app
 app = FastAPI(
     title="Cryptocurrency Data System",
     description="High-performance crypto data system with FastAPI and ClickHouse",

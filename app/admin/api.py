@@ -28,7 +28,7 @@ async def add_historic_data(request: request_body.SymbolRequest, client: Client 
     """
     symbols = request.symbols  
     start_date = request.start_date or '01/01/2020'
-    end_date = request.end_date or date.today.strftime("%d/%m/%Y")
+    end_date = request.end_date or date.today().strftime("%d/%m/%Y")
 
     
     return await admin_service.add_data_for_symbol(client, symbols, start_date, end_date)

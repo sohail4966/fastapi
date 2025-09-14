@@ -95,7 +95,7 @@ class AdminService():
                     failed['symbol'].append(symbol)
             else:
                 failed['symbol'].append(symbol)
-        return {"status": "success", "symbols": symbols}
+        return {"status": "success", "failed": failed}
 
 
     async def validate_symbol(self, client:Client, symbol:str):

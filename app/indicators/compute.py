@@ -31,7 +31,6 @@ class ComputeEngine:
         for key, val in definition.get("parameters", {}).items():
             env[key] = val
 
-
         if any(v is None for v in env.values()):
             raise ValueError(f"Environment has None values before evaluating {step['name']}")
         steps = exec_plan.get("steps", [])

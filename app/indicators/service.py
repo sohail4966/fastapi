@@ -33,6 +33,7 @@ class IndicatorService:
         'formula': model.formula,
         'dependencies': json.dumps(model.dependencies, ensure_ascii=False),
         'parameters': json.dumps(model.parameters, ensure_ascii=False),
+        'exec_plan':json.dumps(model.exec_plan,ensure_ascii=False)
         }
     
 
@@ -51,8 +52,8 @@ class IndicatorService:
         row = self._row_from_model(payload)
 
         self.client.insert(self.TABLE, [(
-        row['id'], row['indicator_name'], row['category'], row['description'], row['formula'], row['dependencies'], row['parameters']
-        )], column_names=['id','indicator_name','category','description','formula','dependencies','parameters'])
+        row['id'], row['indicator_name'], row['category'], row['description'], row['formula'], row['dependencies'], row['parameters'],row['exec_plan']
+        )], column_names=['id','indicator_name','category','description','formula','dependencies','parameters','exec_plan'])
         return row['id']
 
 
@@ -172,7 +173,6 @@ class IndicatorService:
         if not definition:
             raise HTTPException(404, "Indicator not found")
 
-        # 2. Load OHLCV data
         q = """
         SELECT timestamp, open_price, high_price, low_price, close_price, volume
         FROM crypto_ohlcv
@@ -181,6 +181,8 @@ class IndicatorService:
         LIMIT %(limit)s
         """
         rows = db.query(q, parameters={"symbol": symbol, "limit": limit}).result_rows
+        if not rows:
+            raise HTTPException(status_code=400, detail=f"Symbol '{symbol}' not found in OHLCV data")
         df = pd.DataFrame(
             rows, 
             columns=["timestamp","open_price","high_price","low_price","close_price","volume"]
@@ -189,13 +191,20 @@ class IndicatorService:
         if timeframe != "1m":
             df = engine.resample_ohlcv(df,timeframe)
         result = engine.execute_indicator(definition, df, registry)
-
+        result = pd.Series(result, dtype="float64")
         clean_series = result.replace([np.inf, -np.inf], np.nan).where(pd.notna(result), None)
 
         result_with_ts = {
-            str(ts): (None if (val is None or pd.isna(val)) else float(val))
+            str(ts): (
+                None if val is None or pd.isna(val)
+                else (
+                    [float(x) for x in val] if isinstance(val, (list, tuple))
+                    else float(val)
+                )
+            )
             for ts, val in zip(df["timestamp"], clean_series)
         }
+
 
         return {
             "indicator": definition["indicator_name"],

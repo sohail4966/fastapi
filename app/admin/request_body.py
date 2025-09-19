@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Optional
 from pydantic import BaseModel
 
 class SymbolRequest(BaseModel):
@@ -9,5 +10,5 @@ class SymbolRequest(BaseModel):
     @param end_date: date - The end date for the data request.
     """
     symbols: list[str] 
-    start_date : date
-    end_date : date
+    start_date : Optional[date]
+    end_date : Optional[date]

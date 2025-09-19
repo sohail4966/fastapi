@@ -4,9 +4,10 @@
     The router includes endpoints for creating, listing, retrieving, updating, and deleting indicators.
 """
 
+import re
 from typing import Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from clickhouse_connect.driver.client import Client
 from app.dependency import get_db_client
 from app.indicators.repo import IndicatorCreate, IndicatorOut, IndicatorUpdate
@@ -60,6 +61,7 @@ async def get_indicator(id_or_name: str, svc: IndicatorService = Depends(get_ser
             @return The retrieved indicator.
             """
         item = svc.get_indicator(id_or_name)
+        print(item)
         if not item:
             raise HTTPException(status_code=404, detail="indicator not found")
         return item
@@ -93,3 +95,22 @@ async def delete_indicator(id: str, svc: IndicatorService = Depends(get_service)
     if not ok:
             raise HTTPException(status_code=500, detail="failed to delete")
     return {"status": "ok"}
+
+@indicator_router.get("/{indicator_id}/compute")
+def compute_indicator(
+        indicator_id: str,
+        request: Request,
+        symbol: str = Query(...),
+        timeframe: str = Query("1m"),
+        limit: int = Query(1000),
+        svc: IndicatorService = Depends(get_service)
+    ):
+
+    match = re.match(r"^(\d+)([mhdwM])$", timeframe)
+    if not match:
+            raise ValueError(f"Invalid timeframe: {timeframe}")
+
+    num, unit = match.groups()
+    limit = limit*int(num)
+    calculated_values = svc.calculate_indicator(indicator_id,request,symbol,timeframe,limit)
+    return calculated_values

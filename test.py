@@ -1,13 +1,17 @@
-import ccxt
+import asyncio
+from datetime import datetime
 
-# Initialize exchange
-exchange = ccxt.binance()   # you can also use ccxt.coinbase(), ccxt.kucoin(), etc.
-print(exchange.id)
-# Load markets
-markets = exchange.load_markets()
+async def task(args):
+    print(f"started {args} {datetime.now()}")
+    await asyncio.sleep(args)  
+    print(f"ended {args} {datetime.now()}")
 
-# Get list of symbols
-symbols = list(markets.keys())
+async def main():
+    # Run all tasks concurrently
+    await asyncio.gather(
+        task(1),
+        task(3),
+        task(5)
+    )
 
-print(f"Total markets: {len(symbols)}")
-print(symbols[:20])  # print first 20
+asyncio.run(main())

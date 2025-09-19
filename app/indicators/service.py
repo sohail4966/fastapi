@@ -5,8 +5,10 @@ from typing import Any, Dict, List, Optional
 import uuid
 
 from fastapi import HTTPException, logger
+import numpy as np
+import pandas as pd
 from app.indicators.repo import IndicatorBase, IndicatorCreate, IndicatorUpdate
-
+from .compute import ComputeEngine
 
 class IndicatorService:
     TABLE = 'technical_indicators'
@@ -31,6 +33,7 @@ class IndicatorService:
         'formula': model.formula,
         'dependencies': json.dumps(model.dependencies, ensure_ascii=False),
         'parameters': json.dumps(model.parameters, ensure_ascii=False),
+        'exec_plan':json.dumps(model.exec_plan,ensure_ascii=False)
         }
     
 
@@ -49,8 +52,8 @@ class IndicatorService:
         row = self._row_from_model(payload)
 
         self.client.insert(self.TABLE, [(
-        row['id'], row['indicator_name'], row['category'], row['description'], row['formula'], row['dependencies'], row['parameters']
-        )], column_names=['id','indicator_name','category','description','formula','dependencies','parameters'])
+        row['id'], row['indicator_name'], row['category'], row['description'], row['formula'], row['dependencies'], row['parameters'],row['exec_plan']
+        )], column_names=['id','indicator_name','category','description','formula','dependencies','parameters','exec_plan'])
         return row['id']
 
 
@@ -96,7 +99,7 @@ class IndicatorService:
         """
         sel = f"""
             SELECT id, indicator_name, category, description, formula,
-                dependencies, parameters, created_at, updated_at
+                dependencies, parameters, created_at, updated_at,exec_plan
             FROM {self.TABLE}
             WHERE id = %(id)s OR indicator_name = %(name)s
             LIMIT 1
@@ -120,6 +123,7 @@ class IndicatorService:
             'parameters': r[6],
             'created_at': str(r[7]) if r[7] else None,
             'updated_at': str(r[8]) if r[8] else None,
+            "exec_plan": json.loads(r[9]) if r[9] else {}
         }
 
     def list_indicators(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
@@ -160,3 +164,49 @@ class IndicatorService:
         except Exception as ex:
             logger.error(f"Failed to delete indicator {id}: {ex}")
             return False
+        
+    def calculate_indicator(self, indicator_id, request, symbol, timeframe, limit):
+        db = request.app.state.db_manager.client
+        registry = request.app.state.func_registry
+
+        definition = self.get_indicator(indicator_id)
+        if not definition:
+            raise HTTPException(404, "Indicator not found")
+
+        q = """
+        SELECT timestamp, open_price, high_price, low_price, close_price, volume
+        FROM crypto_ohlcv
+        WHERE symbol = %(symbol)s 
+        ORDER BY timestamp DESC
+        LIMIT %(limit)s
+        """
+        rows = db.query(q, parameters={"symbol": symbol, "limit": limit}).result_rows
+        if not rows:
+            raise HTTPException(status_code=400, detail=f"Symbol '{symbol}' not found in OHLCV data")
+        df = pd.DataFrame(
+            rows, 
+            columns=["timestamp","open_price","high_price","low_price","close_price","volume"]
+        ).sort_values("timestamp")
+        engine = ComputeEngine()
+        if timeframe != "1m":
+            df = engine.resample_ohlcv(df,timeframe)
+        result = engine.execute_indicator(definition, df, registry)
+        result = pd.Series(result, dtype="float64")
+        clean_series = result.replace([np.inf, -np.inf], np.nan).where(pd.notna(result), None)
+
+        result_with_ts = {
+            str(ts): (
+                None if val is None or pd.isna(val)
+                else (
+                    [float(x) for x in val] if isinstance(val, (list, tuple))
+                    else float(val)
+                )
+            )
+            for ts, val in zip(df["timestamp"], clean_series)
+        }
+
+
+        return {
+            "indicator": definition["indicator_name"],
+            "result": result_with_ts
+        }

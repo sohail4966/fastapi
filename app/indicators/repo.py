@@ -24,6 +24,7 @@ class IndicatorBase(BaseModel):
     formula: str = Field(..., min_length=1)
     dependencies: Dict[str, Any] = Field(default_factory=dict)
     parameters: Dict[str, Any] = Field(default_factory=dict)
+    exec_plan:Dict[str,Any] = Field(default_factory=dict)
 
     @field_validator('dependencies')
     def dependencies_must_be_object(cls, v):
